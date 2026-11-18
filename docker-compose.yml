@@ -1,0 +1,17 @@
+services:
+  db:
+    image: postgres:16
+    container_name: cancel_dwh_db
+    env_file: .env
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # file .sql dan .sh dijalankan berurutan (alfabet) saat database pertama kali dibuat
+      - ./sql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      retries: 10
+volumes:
+  pgdata:

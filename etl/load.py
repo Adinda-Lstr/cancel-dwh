@@ -128,12 +128,19 @@ def load_simple_dims(conn, df):
 
 
 # -------------------------------------------------------------------- kunci
+EVENT_PRIORITY = {"Harbolnas": 0, "Libur Lebaran": 1, "Tanggal Kembar": 2, "Ramadan": 3}
+
+
 def _event_lookup(conn):
-    """date -> event_key. Bila ada event yang tumpang tindih, yang mulai lebih awal dipakai."""
-    ev = conn.execute(text("""SELECT event_key, start_date, end_date FROM dw.dim_event
-        WHERE event_key > 0 AND start_date IS NOT NULL ORDER BY start_date, event_key""")).fetchall()
+    """date -> event_key. Satu order hanya bisa punya satu event, jadi bila beberapa event tumpang tindih
+    (misalnya 4.4 jatuh di dalam libur Lebaran) dipakai urutan prioritas:
+    Harbolnas > Libur Lebaran > Tanggal Kembar > Ramadan. Libur Lebaran didahulukan dari tanggal kembar
+    supaya jendela Lebaran 2025 (31 Mar-7 Apr) tetap 116 order, sama dengan angka di UTS."""
+    ev = conn.execute(text("""SELECT event_key, event_category, start_date, end_date FROM dw.dim_event
+        WHERE event_key > 0 AND start_date IS NOT NULL""")).fetchall()
+    ev.sort(key=lambda r: (EVENT_PRIORITY.get(r[1], 9), r[2], r[0]))
     mapping, overlaps = {}, 0
-    for key, s, e in ev:
+    for key, _, s, e in ev:
         for d in pd.date_range(s, e, freq="D"):
             if d.date() in mapping:
                 overlaps += 1
@@ -288,7 +295,8 @@ def load(engine, batch_id, df):
                 log_step(engine, batch_id, "load", "WARNING",
                          f"{count} baris tidak punya pasangan di dim_{dim}, dipetakan ke Unknown (-1)")
         if overlaps:
-            log_step(engine, batch_id, "load", "WARNING", f"{overlaps} tanggal tercakup lebih dari satu event")
+            log_step(engine, batch_id, "load", "INFO",
+                     f"{overlaps} pasangan tanggal-event tumpang tindih; dipilih berdasarkan prioritas event")
 
         total, inserted, updated = load_fact_order(conn, keyed, batch_id)
         n_cat = load_fact_order_category(conn, keyed, batch_id)

@@ -5,8 +5,8 @@ dengan angka di setiap lapisan. Hasilnya dicatat di etl.etl_log (step 'validate'
 
 Jalankan:  python -m etl.validate        Kode keluar 0 = semua cocok, 1 = ada selisih.
 """
-import re
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -106,6 +106,7 @@ def main():
 
     checks = run_checks(engine)
     failed = 0
+    run_tag = f"validate-{datetime.now():%Y%m%d%H%M%S}"  # penanda satu kali proses validasi di etl_log
     print(f"VALIDASI Source -> Staging -> DWH -> Mart (batch {batch_id})")
     print(f"{'Lapisan':26} {'Pemeriksaan':48} {'Acuan CSV':>16} {'Aktual':>16}  Status")
     for layer, name, expected, actual, tol in checks:
@@ -113,13 +114,13 @@ def main():
         failed += not ok
         fmt = (lambda v: f"{v:,.2f}") if (tol >= MONEY_TOL or expected != int(expected)) else (lambda v: f"{int(v):,}")
         print(f"{layer:26} {name[:48]:48} {fmt(expected):>16} {fmt(actual):>16}  {'LULUS' if ok else 'GAGAL'}")
-        if not ok:
-            log_step(engine, batch_id, "validate", "ERROR",
-                     f"{layer} - {name}: acuan {expected}, aktual {actual}")
+        # setiap pemeriksaan dicatat; view mart.v_validation_latest membacanya untuk dashboard
+        log_step(engine, batch_id, "validate", "SUCCESS" if ok else "ERROR",
+                 f"{layer} | {name} | {fmt(expected)} | {fmt(actual)}", source_file=run_tag)
     status = "SUCCESS" if not failed else "ERROR"
     log_step(engine, batch_id, "validate", status,
-             f"{len(checks) - failed}/{len(checks)} pemeriksaan lulus", rows_read=len(checks),
-             rows_rejected=failed)
+             f"{len(checks) - failed}/{len(checks)} pemeriksaan lulus", source_file=run_tag,
+             rows_read=len(checks), rows_rejected=failed)
     print(f"\nHasil: {len(checks) - failed}/{len(checks)} lulus" + ("" if not failed else f", {failed} GAGAL"))
     sys.exit(1 if failed else 0)
 
